@@ -203,34 +203,37 @@
         <div class="stats" id="stats"></div>
     </div>
 
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script>
         // IIFE로 전역 스코프 오염 방지
         (() => {
+            // Supabase 클라이언트 초기화
+            const SUPABASE_URL = 'https://yeyghjksxwnlvtjigsfr.supabase.co';
+            const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlleWdoamtzeHdubHZ0amlnc2ZyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njg3MzY5NDYsImV4cCI6MjA4NDMxMjk0Nn0.ncsAIqtsFlisv8ASFH5M8b0WVdgH8RluMCiCXgFaUa0';
+            const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
             const itemInput = document.getElementById('itemInput');
             const addBtn = document.getElementById('addBtn');
             const itemList = document.getElementById('itemList');
             const stats = document.getElementById('stats');
 
-            let items = loadItems();
+            let items = [];
 
-            // localStorage에서 데이터 로드 (에러 처리 포함)
-            function loadItems() {
+            // Supabase에서 데이터 로드
+            async function loadItems() {
                 try {
-                    const data = localStorage.getItem('shoppingList');
-                    return data ? JSON.parse(data) : [];
+                    const { data, error } = await supabase
+                        .from('shopping_items')
+                        .select('*')
+                        .order('created_at', { ascending: true });
+
+                    if (error) throw error;
+
+                    items = data || [];
+                    renderList();
                 } catch (error) {
                     console.error('Failed to load items:', error);
-                    return [];
-                }
-            }
-
-            // localStorage에 데이터 저장 (에러 처리 포함)
-            function saveItems() {
-                try {
-                    localStorage.setItem('shoppingList', JSON.stringify(items));
-                } catch (error) {
-                    console.error('Failed to save items:', error);
-                    alert('저장에 실패했습니다. 저장 공간이 부족할 수 있습니다.');
+                    alert('데이터를 불러오는데 실패했습니다.');
                 }
             }
 
@@ -255,8 +258,8 @@
                 if (items.length === 0) {
                     itemList.innerHTML = '<div class="empty-message">쇼핑 리스트가 비어있습니다</div>';
                 } else {
-                    itemList.innerHTML = items.map((item, index) => `
-                        <li data-index="${index}">
+                    itemList.innerHTML = items.map((item) => `
+                        <li data-id="${item.id}">
                             <div class="checkbox ${item.checked ? 'checked' : ''}" data-action="toggle"></div>
                             <span class="item-text ${item.checked ? 'checked' : ''}">${escapeHtml(item.text)}</span>
                             <button class="delete-btn" data-action="delete">×</button>
@@ -266,27 +269,68 @@
                 updateStats();
             }
 
-            function addItem() {
+            // Supabase에 아이템 추가
+            async function addItem() {
                 const text = itemInput.value.trim();
-                if (text) {
-                    items.push({ text, checked: false });
-                    saveItems();
+                if (!text) return;
+
+                try {
+                    const { data, error } = await supabase
+                        .from('shopping_items')
+                        .insert([{ text, checked: false }])
+                        .select();
+
+                    if (error) throw error;
+
+                    items.push(data[0]);
                     renderList();
                     itemInput.value = '';
                     itemInput.focus();
+                } catch (error) {
+                    console.error('Failed to add item:', error);
+                    alert('아이템 추가에 실패했습니다.');
                 }
             }
 
-            function deleteItem(index) {
-                items.splice(index, 1);
-                saveItems();
-                renderList();
+            // Supabase에서 아이템 삭제
+            async function deleteItem(id) {
+                try {
+                    const { error } = await supabase
+                        .from('shopping_items')
+                        .delete()
+                        .eq('id', id);
+
+                    if (error) throw error;
+
+                    items = items.filter(item => item.id !== id);
+                    renderList();
+                } catch (error) {
+                    console.error('Failed to delete item:', error);
+                    alert('아이템 삭제에 실패했습니다.');
+                }
             }
 
-            function toggleItem(index) {
-                items[index].checked = !items[index].checked;
-                saveItems();
-                renderList();
+            // Supabase에서 아이템 토글
+            async function toggleItem(id) {
+                try {
+                    const item = items.find(item => item.id === id);
+                    if (!item) return;
+
+                    const newChecked = !item.checked;
+
+                    const { error } = await supabase
+                        .from('shopping_items')
+                        .update({ checked: newChecked })
+                        .eq('id', id);
+
+                    if (error) throw error;
+
+                    item.checked = newChecked;
+                    renderList();
+                } catch (error) {
+                    console.error('Failed to toggle item:', error);
+                    alert('아이템 상태 변경에 실패했습니다.');
+                }
             }
 
             // 이벤트 위임을 사용한 리스트 이벤트 처리
@@ -294,13 +338,13 @@
                 const listItem = event.target.closest('li');
                 if (!listItem) return;
 
-                const index = parseInt(listItem.dataset.index, 10);
+                const id = listItem.dataset.id;
                 const action = event.target.dataset.action;
 
                 if (action === 'toggle') {
-                    toggleItem(index);
+                    toggleItem(id);
                 } else if (action === 'delete') {
-                    deleteItem(index);
+                    deleteItem(id);
                 }
             });
 
@@ -314,8 +358,8 @@
                 }
             });
 
-            // 초기 렌더링
-            renderList();
+            // 초기 로드
+            loadItems();
         })();
     </script>
 </body>
